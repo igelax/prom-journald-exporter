@@ -44,5 +44,5 @@ $ sudo ls > /dev/null
 $ curl -s http://localhost:9101/metrics | grep sudo
 # HELP sudo_count_total The total number of sudo events
 # TYPE sudo_count_total counter
-sudo_count_total 3
+sudo_count_total 2
 ```
