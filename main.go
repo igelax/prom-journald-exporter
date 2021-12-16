@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"regexp"
 
 	"net/http"
 
@@ -34,13 +35,17 @@ func (p *JournalWriter) Write(data []byte) (n int, err error) {
 
 // Parse journal entry address and process Prometheus metrics (passed from above Write method)
 func JournalParser(entry *[]byte) {
-	e := fmt.Sprintf("%s", *entry)
+	e := fmt.Sprintf("%s", *entry) // convert pointer value entry to string
 	if debug {
-		fmt.Printf("%s", e) // print pointer value to entry
+		fmt.Printf("%s", e)
 	}
 
-	// parse entry and update Prometheus metrics
-	metricSudoCount.Inc() // increment Prometheus counter
+	// Check entry using regexp and update Prometheus metrics
+	r, _ := regexp.Compile("sudo:session")
+	matched := r.MatchString(e)
+	if matched {
+		metricSudoCount.Inc() // increment Prometheus counter
+	}
 }
 
 func main() {
