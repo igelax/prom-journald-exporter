@@ -84,9 +84,12 @@ func read_journal() {
 	if err != nil {
 		panic(err)
 	}
-	defer jr.Close()       // close JournalReader when done
-	jrw := JournalWriter{} // Create variable of type JournalWriter (only implements Write method)
-	jr.Follow(nil, &jrw)   // follow journal and pass address of custom writer to parse new entries
+	defer jr.Close()           // close JournalReader when done
+	jrw := JournalWriter{}     // Create variable of type JournalWriter (only implements Write method)
+	err = jr.Follow(nil, &jrw) // follow journal and pass address of custom writer to parse new entries
+	if err != nil {
+		panic(err)
+	}
 }
 
 func prom_http(listen string) {
