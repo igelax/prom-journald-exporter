@@ -28,8 +28,8 @@ type JournalWriter struct{}
 
 // Write method with io.Write arguments and JournalWriter pointer receiver
 func (p *JournalWriter) Write(data []byte) (n int, err error) {
-	// convert byte data to string and pass to JournalParser (to parse journald messages and process metrics)
-	JournalParser(&data) // pass address value for data
+	// call JournalParser function with address of data to parse journald messages and process metrics
+	JournalParser(&data)
 	return len(data), nil
 }
 
