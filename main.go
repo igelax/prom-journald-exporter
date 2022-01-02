@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sync"
 
 	"net/http"
 
@@ -23,17 +24,17 @@ var (
 	debug bool
 )
 
-// sdjournal.JournalReader.Follow requires a custom type with a Write method (io.Write)
+// sdjournal.JournalReader.Follow requires a custom type with a Write method (io.Write).
 type JournalWriter struct{}
 
-// Write method with io.Write arguments and JournalWriter pointer receiver
+// Write method implementing the io.Write interface with JournalWriter pointer receiver
 func (p *JournalWriter) Write(data []byte) (n int, err error) {
 	// call JournalParser function with address of data to parse journald messages and process metrics
 	JournalParser(&data)
 	return len(data), nil
 }
 
-// Parse journal entry address and process Prometheus metrics (passed from above Write method)
+// JournalParser parses journal entry address and process Prometheus metrics (passed from Write method).
 func JournalParser(entry *[]byte) {
 	e := fmt.Sprintf("%s", *entry) // convert pointer value entry to string
 	if debug {
@@ -58,10 +59,14 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "Enable debug")
 	flag.Parse()
 
-	go read_journal()     // go routine to follow/tail new journald logs and process metrics
-	prom_http(listenHTTP) // start Prometheus http endpoint
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go read_journal()        // go routine to follow/tail new journald logs and process metrics
+	go prom_http(listenHTTP) // start Prometheus http endpoint
+	wg.Wait()
 }
 
+// read_journal tails (follows) the journald log using the sdjournal package.
 func read_journal() {
 
 	// links for more information on sdjournal
@@ -85,13 +90,14 @@ func read_journal() {
 		panic(err)
 	}
 	defer jr.Close()           // close JournalReader when done
-	jrw := JournalWriter{}     // Create variable of type JournalWriter (only implements Write method)
+	jrw := JournalWriter{}     // create variable of type JournalWriter (only implements Write method)
 	err = jr.Follow(nil, &jrw) // follow journal and pass address of custom writer to parse new entries
 	if err != nil {
 		panic(err)
 	}
 }
 
+// prom_http starts the Prometheus HTTP listener on the specified listen string at /metrics.
 func prom_http(listen string) {
 	fmt.Println("listening on", listen, "/metrics")
 	http.Handle("/metrics", promhttp.Handler())
