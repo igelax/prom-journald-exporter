@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"regexp"
-	"sync"
+	"syscall"
 
 	"net/http"
 
@@ -21,7 +24,7 @@ var (
 		Name: "sudo_count_total",
 		Help: "The total number of sudo events",
 	})
-	debug bool
+	verbose bool
 )
 
 // sdjournal.JournalReader.Follow requires a custom type with a Write method (io.Write).
@@ -34,10 +37,10 @@ func (p *JournalWriter) Write(data []byte) (n int, err error) {
 	return len(data), nil
 }
 
-// JournalParser parses journal entry address and process Prometheus metrics (passed from Write method).
+// JournalParser parses journal entry address and processes Prometheus metrics (passed from Write method).
 func JournalParser(entry *[]byte) {
 	e := fmt.Sprintf("%s", *entry) // convert pointer value entry to string
-	if debug {
+	if verbose {
 		fmt.Printf("%s", e)
 	}
 
@@ -46,28 +49,52 @@ func JournalParser(entry *[]byte) {
 	matched := r.MatchString(e)
 	if matched {
 		metricSudoCount.Inc() // increment Prometheus counter
+		if verbose {
+			fmt.Println("incremented prometheus counter")
+		}
 	}
 }
 
 func main() {
 	var (
-		listenHTTP string
+		listenHTTP  string
+		syslog_id   string
+		ctx, cancel = context.WithCancel(context.Background())
 	)
+
+	defer func() {
+		// Close database, redis, truncate message queues, etc.
+		fmt.Println("Running cancel()")
+		cancel()
+	}()
 
 	// command line (flag) variables and defaults
 	flag.StringVar(&listenHTTP, "listenHTTP", ":9101", "ip:port to listen for http requests")
-	flag.BoolVar(&debug, "debug", false, "Enable debug")
+	flag.BoolVar(&verbose, "verbose", false, "Enable verbose output with filtered log entries")
+	flag.StringVar(&syslog_id, "syslogIdentifier", "sudo", "syslog identifier used to filter journald (empty string for no filtering")
 	flag.Parse()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go read_journal()        // go routine to follow/tail new journald logs and process metrics
-	go prom_http(listenHTTP) // start Prometheus http endpoint
-	wg.Wait()
+	go read_journal(ctx, syslog_id) // go routine to follow/tail new journald logs and process metrics
+	go prom_http(ctx, listenHTTP)   // start Prometheus http endpoint
+
+	// Wait for SIGINT.
+	sig := make(chan os.Signal, 3)
+	signal.Notify(sig, syscall.SIGHUP)
+	signal.Notify(sig, syscall.SIGINT)
+	signal.Notify(sig, syscall.SIGTERM)
+	<-sig
+
+	// Shutdown. Cancel application context will kill all attached tasks.
+	cancel()
 }
 
 // read_journal tails (follows) the journald log using the sdjournal package.
-func read_journal() {
+func read_journal(ctx context.Context, syslogIdentifier string) {
+
+	defer func() {
+		fmt.Println("running deferred ctx.Done")
+		<-ctx.Done()
+	}()
 
 	// links for more information on sdjournal
 	// https://pkg.go.dev/github.com/coreos/go-systemd/v22@v22.3.2/sdjournal#JournalReader
@@ -76,12 +103,16 @@ func read_journal() {
 	// journal config
 	jconf := sdjournal.JournalReaderConfig{
 		Since: -1,
-		Matches: []sdjournal.Match{
+	}
+
+	// Add Match rule
+	if syslogIdentifier != "" {
+		jconf.Matches = []sdjournal.Match{
 			{
 				Field: sdjournal.SD_JOURNAL_FIELD_SYSLOG_IDENTIFIER,
-				Value: "sudo", // ${APPNAME}.service
+				Value: syslogIdentifier, // ${APPNAME}.service
 			},
-		},
+		}
 	}
 
 	// journal reader
@@ -98,7 +129,13 @@ func read_journal() {
 }
 
 // prom_http starts the Prometheus HTTP listener on the specified listen string at /metrics.
-func prom_http(listen string) {
+func prom_http(ctx context.Context, listen string) {
+
+	defer func() {
+		fmt.Println("running deferred ctx.Done")
+		<-ctx.Done()
+	}()
+
 	fmt.Println("listening on", listen, "/metrics")
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(listen, nil))
