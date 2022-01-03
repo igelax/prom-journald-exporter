@@ -16,14 +16,19 @@ The Makefile has the following targets:
 - clean
 - build_amd64
 - build_arm64
+- build arm
 - all
+
+To build with a make target:
+```
+make <target>
+```
 
 To cross-compile ARM64 on AMD64, install the following Debian package (Ubuntu 20.04):
 - gcc-aarch64-linux-gnu
 
 To cross-compile ARM on AMD64, install the following Debian package (Ubuntu 20.04):
 - gcc-arm-linux-gnueabihf
-
 
 ## Download
 
