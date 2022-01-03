@@ -1,3 +1,4 @@
 build/
 out/
 prom_journald_exporter
+cover.out
